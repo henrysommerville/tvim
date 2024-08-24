@@ -31,6 +31,24 @@ void tvim_process_key(int c);
 
 struct editorConfig tvimConfig;
 
+
+/* EXIT */
+
+void crash(const char* s) {
+    write(STDOUT_FILENO, "\x1b[2J", 4);
+    write(STDOUT_FILENO, "\x1b[H", 3);
+    perror(s);
+    exit(1);
+}
+
+void clean_exit() {
+    write(STDOUT_FILENO, "\x1b[2J", 4);
+    write(STDOUT_FILENO, "\x1b[H", 3);
+    exit(0);
+}
+
+/* APPEND BUFFER */
+
 struct abuf ab_init() {
     // initial size 8, randomly selected can change.
     char* buffer = (char*)malloc(sizeof(char) * 8);
@@ -71,18 +89,7 @@ void ab_free(struct abuf* ab) {
     }
 }
 
-void crash(const char* s) {
-    write(STDOUT_FILENO, "\x1b[2J", 4);
-    write(STDOUT_FILENO, "\x1b[H", 3);
-    perror(s);
-    exit(1);
-}
-
-void clean_exit() {
-    write(STDOUT_FILENO, "\x1b[2J", 4);
-    write(STDOUT_FILENO, "\x1b[H", 3);
-    exit(0);
-}
+/* Terminal */
 
 void terminal_disable_raw_mode() {
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &tvimConfig.original_termios) ==
@@ -163,11 +170,19 @@ void terminal_refresh_screen() {
 void terminal_init() {
     tvimConfig.curX = 0;
     tvimConfig.curY = 0;
+    tvimConfig.tvimMode = NORMAL;
+    tvimConfig.num_rows = 0;
     if (terminal_get_window_size(&tvimConfig.screenRows,
                                  &tvimConfig.screenCols) == -1) {
         crash("getWindowSize");
     }
 }
+
+/* FILE IO */
+
+
+
+/* TVIM */
 
 void tvim_draw_rows(struct abuf* ab) {
     for (size_t y = 0; y < tvimConfig.screenRows; y++) {
@@ -275,21 +290,69 @@ void tvim_move_cursor(int key) {
     }
 }
 
+void tvim_write_char(char c) {
+    // TODO
+}
+
+void tvim_delete_char() {
+    // TODO
+}
+
 void tvim_process_key(int c) {
-    switch (c) {
-    case CTRL_KEY('q'):
-        clean_exit();
+    switch (tvimConfig.tvimMode) {
+    case INSERT:
+        switch (c) {
+        case ARROW_UP:
+        case ARROW_DOWN:
+        case ARROW_LEFT:
+        case ARROW_RIGHT:
+            tvim_move_cursor(c);
+            break;
+        case DELETE_KEY:
+            tvim_delete_char();
+            tvimConfig.tvimMode = NORMAL;
+            break;
+        case CTRL_KEY('q'):
+            clean_exit();
+            break;
+        default:
+            tvim_write_char(c);
+        }
         break;
-    case ARROW_UP:
-    case ARROW_DOWN:
-    case ARROW_LEFT:
-    case ARROW_RIGHT:
-        tvim_move_cursor(c);
-        break;
-    case DELETE_KEY:
-        assert("TODO: NOT IMPLEMENTED");
-    default:
-        fprintf(stdout, "%c\r\n", c);
+    case NORMAL:
+        switch (c) {
+        case ARROW_UP:
+        case ARROW_DOWN:
+        case ARROW_LEFT:
+        case ARROW_RIGHT:
+            tvim_move_cursor(c);
+            break;
+        case DELETE_KEY:
+            tvim_delete_char();
+            tvimConfig.tvimMode = NORMAL;
+            break;
+        case CTRL_KEY('q'):
+            clean_exit();
+            break;
+        default:
+            break;
+        }
+    case VISUAL:
+        switch (c) {
+        case ARROW_UP:
+        case ARROW_DOWN:
+        case ARROW_LEFT:
+        case ARROW_RIGHT:
+            tvim_move_cursor(c);
+            break;
+        case DELETE_KEY:
+            tvim_delete_char();
+            tvimConfig.tvimMode = NORMAL;
+            break;
+        case CTRL_KEY('q'):
+            clean_exit();
+            break;
+        }
         break;
     }
 }

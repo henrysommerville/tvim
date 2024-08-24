@@ -31,12 +31,20 @@ struct abuf {
     size_t capacity;
 };
 
+typedef struct {
+    char* row;
+    size_t len;
+} row_t;
+
 struct editorConfig {
     int curX, curY;
     size_t screenRows;
     size_t screenCols;
     struct termios original_termios;
     enum mode tvimMode;
+    
+    size_t num_rows;
+    row_t* rows;
 };
 
 #endif
