@@ -9,8 +9,12 @@
 #define MAX(x, y) (((x) > (y)) ? (x) : (y))
 #define MIN(x, y) (((x) < (y)) ? (x) : (y))
 
+#define UNUSED(x) (void)x
+
+#define TVIM_TAB_STOP 4
+
 enum mode {
-    NORMAL,
+    NORMAL = 0,
     VISUAL,
     INSERT,
 };
@@ -27,24 +31,30 @@ enum key {
 
 struct abuf {
     char* buf;
-    size_t length;
-    size_t capacity;
+    int len;
+    int capacity;
 };
 
 typedef struct {
-    char* row;
-    size_t len;
+    int len;
+    int rlen;
+    char* chars;
+    char* render;
 } row_t;
 
 struct editorConfig {
-    int curX, curY;
-    size_t screenRows;
-    size_t screenCols;
-    struct termios original_termios;
-    enum mode tvimMode;
-    
-    size_t num_rows;
+    int cX, cY;
+    int rX;
+    int rowOff;
+    int colOff;
+    int screenRows;
+    int screenCols;
+    int nRows;
     row_t* rows;
+    char* filename;
+    enum mode tvimMode;
+
+    struct termios og_termios;
 };
 
 #endif
