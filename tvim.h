@@ -17,10 +17,14 @@ enum mode {
     NORMAL = 0,
     VISUAL,
     INSERT,
+    COMMAND,
 };
 
 enum key {
+    BACKSPACE = 127,
     i = 'i',
+    ESCAPE = 27, 
+    ENTER = '\r',
     ARROW_LEFT = 1000,
     ARROW_RIGHT,
     ARROW_UP,
@@ -53,6 +57,9 @@ struct editorConfig {
     int nRows;
     row_t* rows;
     char* filename;
+
+    int unsaved;
+
     enum mode tvimMode;
 
     struct termios og_termios;

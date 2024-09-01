@@ -344,7 +344,9 @@ void tvim_move_cursor(int key) {
         if (row && tvimConfig.cX < row->len) {
             tvimConfig.cX++;
         } else if (row && tvimConfig.cX == row->len) {
-            tvimConfig.cY++;
+            if (tvimConfig.cY < tvimConfig.nRows) {
+                tvimConfig.cY++;
+            }
             tvimConfig.cX = 0;
         }
         break;
@@ -439,6 +441,12 @@ void tvim_refresh_screen() {
     ab_free(&ab);
 }
 
+void tvim_new_line(char c) {
+    UNUSED(c);
+    // todo;
+    return;
+}
+
 void tvim_write_char(char c) {
     if (tvimConfig.cY == tvimConfig.nRows) {
         row_append("", 0);
@@ -450,7 +458,6 @@ void tvim_write_char(char c) {
     if (loc < 0 || loc > curRow->len) {
         loc = curRow->len;
     }
-
 
     curRow->chars = (char*)realloc(curRow->chars, curRow->len + 2);
     if (curRow->chars == NULL) {
@@ -469,8 +476,73 @@ void tvim_write_char(char c) {
     return;
 }
 
+void row_free(row_t* row) {
+    if (row->chars != NULL) {
+        free(row->chars);
+    }
+
+    if (row->render != NULL) {
+        free(row->render);
+    }
+
+    return;
+}
+
+void row_delete(int at) {
+    if (at < 0 || at >= tvimConfig.nRows) {
+        return;
+    }
+
+    row_free(&tvimConfig.rows[at]);
+
+    size_t size = sizeof(row_t) * (tvimConfig.nRows - at - 1);
+    memmove(&tvimConfig.rows[at], &tvimConfig.rows[at + 1], size);
+    tvimConfig.nRows--;
+    tvimConfig.unsaved++;
+
+    return;
+}
+
+void row_join(row_t* row, char* s, int len) {
+    row->chars = realloc(row->chars, row->len + len + 1);
+    memcpy(&row->chars[row->len], s, len);
+    row->len += len;
+    row->chars[row->len] = '\0';
+    editorUpdateRow(row);
+    tvimConfig.unsaved++;
+
+    return;
+}
+
 void tvim_delete_char() {
-    // TODO
+    if (tvimConfig.cY == tvimConfig.nRows) {
+        return;
+    }
+    if (tvimConfig.cY == 0 && tvimConfig.cX == 0) {
+        return;
+    }
+    row_t* curRow = &tvimConfig.rows[tvimConfig.cY];
+    int loc = tvimConfig.cX - 1;
+    if (loc < 0) {
+        tvimConfig.cX = tvimConfig.rows[tvimConfig.cY - 1].len;
+        row_join(&tvimConfig.rows[tvimConfig.cY - 1], curRow->chars,
+                 curRow->len);
+
+        row_delete(tvimConfig.cY);
+        tvimConfig.cY--;
+        return;
+    }
+    if (loc > curRow->len) {
+        loc = curRow->len;
+    }
+
+    memmove(&curRow->chars[loc], &curRow->chars[loc + 1], curRow->len - 1);
+    curRow->len--;
+    curRow->chars[curRow->len] = '\0';
+
+    tvimConfig.cX--;
+    editorUpdateRow(curRow);
+    return;
 }
 
 /*** input ***/
@@ -528,7 +600,6 @@ int tvim_read_key() {
 }
 
 void tvim_process_normal(int c) {
-
     switch (c) {
     case ARROW_UP:
     case ARROW_DOWN:
@@ -537,11 +608,14 @@ void tvim_process_normal(int c) {
         tvim_move_cursor(c);
         break;
     case DELETE_KEY:
+        tvim_move_cursor(ARROW_RIGHT);
         tvim_delete_char();
         tvimConfig.tvimMode = NORMAL;
         break;
     case i:
         tvimConfig.tvimMode = INSERT;
+        break;
+    case ESCAPE:
         break;
     case CTRL_KEY('q'):
         clean_exit();
@@ -560,6 +634,7 @@ void tvim_process_visual(int c) {
         tvim_move_cursor(c);
         break;
     case DELETE_KEY:
+        tvim_move_cursor(ARROW_RIGHT);
         tvim_delete_char();
         tvimConfig.tvimMode = NORMAL;
         break;
@@ -580,7 +655,17 @@ void tvim_process_insert(int c) {
         tvim_move_cursor(c);
         break;
     case DELETE_KEY:
+        tvim_move_cursor(ARROW_RIGHT);
         tvim_delete_char();
+        break;
+    case BACKSPACE:
+        tvim_delete_char();
+        break;
+    case ENTER:
+        tvim_new_line(c);
+        break;
+    case CTRL_KEY('l'):
+    case ESCAPE:
         tvimConfig.tvimMode = NORMAL;
         break;
     case CTRL_KEY('q'):
@@ -588,7 +673,15 @@ void tvim_process_insert(int c) {
         break;
     default:
         tvim_write_char(c);
+        break;
     }
+
+    return;
+}
+
+void tvim_process_command(int c) {
+    UNUSED(c);
+    return;
 }
 
 void tvim_process_key(int c) {
@@ -601,6 +694,9 @@ void tvim_process_key(int c) {
         break;
     case VISUAL:
         tvim_process_visual(c);
+        break;
+    case COMMAND:
+        tvim_process_command(c);
         break;
     default:
         break;
