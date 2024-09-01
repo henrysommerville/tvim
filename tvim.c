@@ -146,7 +146,8 @@ void editorUpdateRow(row_t* row) {
         if (row->chars[j] == '\t')
             tabs++;
 
-    row->render = malloc(row->len + tabs * (TVIM_TAB_STOP - 1) + 1);
+    row->render =
+        malloc(sizeof(char) * (row->len + tabs * (TVIM_TAB_STOP - 1) + 1));
 
     int idx = 0;
     for (j = 0; j < row->len; j++) {
@@ -162,38 +163,34 @@ void editorUpdateRow(row_t* row) {
     row->rlen = idx;
 }
 
-void row_append(char* s, size_t len, int* linesRead) {
-    int at = *linesRead;
+void row_append(char* s, size_t len) {
+    if (s == NULL) {
+        return;
+    }
+    if (tvimConfig.nRows == 0) {
+        tvimConfig.rows =
+            (row_t*)malloc(sizeof(row_t) * (tvimConfig.nRows + 1));
+    } else {
+        tvimConfig.rows = (row_t*)realloc(
+            tvimConfig.rows, sizeof(row_t) * (tvimConfig.nRows + 1));
+    }
+    if (tvimConfig.rows == NULL) {
+        crash("malloc/realloc");
+    }
+
+    int at = tvimConfig.nRows;
     tvimConfig.rows[at].len = len;
-    tvimConfig.rows[at].chars = malloc(len + 1);
+    tvimConfig.rows[at].chars = (char*)malloc(len + 1);
     memcpy(tvimConfig.rows[at].chars, s, len);
     tvimConfig.rows[at].chars[len] = '\0';
 
     tvimConfig.rows[at].rlen = 0;
     tvimConfig.rows[at].render = NULL;
     editorUpdateRow(&tvimConfig.rows[at]);
-
-    (*linesRead)++;
+    tvimConfig.nRows++;
 }
 
 /*** file i/o ***/
-
-int file_get_lines(FILE* file_ptr) {
-    int lines = 0;
-    while (!feof(file_ptr)) {
-        char c = fgetc(file_ptr);
-        if (ferror(file_ptr)) {
-            return -1;
-        }
-        if (c == '\n') {
-            lines++;
-        }
-    }
-    if (fseek(file_ptr, 0, SEEK_SET) < 0) {
-        return -1;
-    }
-    return lines;
-}
 
 void file_open(char* filename) {
     bool result = true;
@@ -204,18 +201,6 @@ void file_open(char* filename) {
     if (!fp)
         crash("fopen");
 
-    int nLines = file_get_lines(fp);
-    if (nLines == -1) {
-        return_defer(false);
-    }
-
-    tvimConfig.rows = (row_t*)malloc(sizeof(row_t) * nLines + 1);
-    if (tvimConfig.rows == NULL) {
-        return_defer(false);
-    }
-    tvimConfig.nRows = nLines;
-
-    int linesRead = 0;
     int nChars = 0;
     char c;
     while ((c = fgetc(fp)) != EOF) {
@@ -237,10 +222,8 @@ void file_open(char* filename) {
 
             fread(cRow, (nChars + 1) * sizeof(char), 1, fp);
 
-            cRow[nChars + 1] = '\0';
-            row_append(cRow, nChars, &linesRead);
-            if (cRow != NULL)
-                free(cRow);
+            cRow[nChars] = '\0';
+            row_append(cRow, nChars);
             nChars = 0;
             continue;
         }
@@ -263,9 +246,7 @@ void file_open(char* filename) {
         }
 
         cRow[nChars + 1] = '\0';
-        row_append(cRow, nChars, &linesRead);
-        if (cRow != NULL)
-            free(cRow);
+        row_append(cRow, nChars);
     }
 
     return_defer(true);
@@ -288,12 +269,11 @@ struct abuf ab_init() {
 
     // malloc() causes an error in realloc for ab_append? unsure why. calloc
     // seems to fix this issue.
-    
+
     /*ab.buf = (char*)malloc(sizeof(char) * initial_capacity);*/
     ab.buf = (char*)calloc(sizeof(char), sizeof(char) * initial_capacity);
     ab.capacity = 8;
     ab.len = 0;
-
 
     return ab;
 }
@@ -460,8 +440,33 @@ void tvim_refresh_screen() {
 }
 
 void tvim_write_char(char c) {
-    // TODO
-    UNUSED(c);
+    if (tvimConfig.cY == tvimConfig.nRows) {
+        row_append("", 0);
+    }
+
+    row_t* curRow = &tvimConfig.rows[tvimConfig.cY];
+
+    int loc = tvimConfig.cX;
+    if (loc < 0 || loc > curRow->len) {
+        loc = curRow->len;
+    }
+
+
+    curRow->chars = (char*)realloc(curRow->chars, curRow->len + 2);
+    if (curRow->chars == NULL) {
+        crash("realloc");
+    }
+    if (memmove(&curRow->chars[loc + 1], &curRow->chars[loc],
+                curRow->len - tvimConfig.cX + 1) == NULL) {
+        crash("memmove");
+    }
+
+    curRow->len += 1;
+    curRow->chars[loc] = c;
+    tvimConfig.cX++;
+    editorUpdateRow(curRow);
+
+    return;
 }
 
 void tvim_delete_char() {
@@ -534,6 +539,9 @@ void tvim_process_normal(int c) {
     case DELETE_KEY:
         tvim_delete_char();
         tvimConfig.tvimMode = NORMAL;
+        break;
+    case i:
+        tvimConfig.tvimMode = INSERT;
         break;
     case CTRL_KEY('q'):
         clean_exit();

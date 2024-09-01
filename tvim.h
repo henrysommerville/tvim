@@ -20,6 +20,7 @@ enum mode {
 };
 
 enum key {
+    i = 'i',
     ARROW_LEFT = 1000,
     ARROW_RIGHT,
     ARROW_UP,
