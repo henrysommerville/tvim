@@ -203,7 +203,9 @@ void row_update(row_t* row) {
         if (row->chars[j] == '\t')
             tabs++;
 
-    free(row->render);
+    if (row->render != NULL) {
+        free(row->render);
+    }
     row->render = NULL;
     row->render = (char*)malloc(sizeof(char) *
                                 (row->len + tabs * (TVIM_TAB_STOP - 1) + 1));
@@ -236,6 +238,7 @@ void row_append(char* s, size_t len) {
         tvimConfig.rows = (row_t*)realloc(
             tvimConfig.rows, sizeof(row_t) * (tvimConfig.nRows + 1));
     }
+
     if (tvimConfig.rows == NULL) {
         crash("malloc/realloc");
     }
@@ -284,9 +287,21 @@ void row_insert(int at, char* s, size_t len) {
 }
 
 void row_free(row_t* row) {
-    free(row->chars);
-    free(row->render);
-    free(row);
+    if (row->chars != NULL) {
+        free(row->chars);
+        row->chars = NULL;
+    }
+
+    if (row->render != NULL) {
+        free(row->render);
+        row->render = NULL;
+    }
+
+    // cannot free row since it is part of an array. Duh (I think)
+    /*if (row != NULL) {*/
+    /*    free(row);*/
+    /*    row = NULL;*/
+    /*}*/
 
     return;
 }
@@ -394,6 +409,25 @@ void file_open(char* filename) {
     file_get_lines(fp);
 }
 
+void file_save() {
+
+    FILE* fp = fopen(tvimConfig.filename, "r+");
+    for (int i = 0; i < tvimConfig.nRows; i++) {
+        // + 2 to include /n and /0
+        char* row = (char*)malloc(sizeof(char) * tvimConfig.rows[i].len + 2);
+        memcpy(row, tvimConfig.rows[i].chars, tvimConfig.rows[i].len);
+        row[tvimConfig.rows[i].len] = '\n';
+
+        fwrite(row, tvimConfig.rows[i].len + 1, 1, fp);
+
+        free(row);
+    }
+
+    if (fp) {
+        fclose(fp);
+    }
+}
+
 /*** output ***/
 
 void tvim_scroll() {
@@ -423,6 +457,7 @@ void tvim_move_cursor(int key) {
                      : &tvimConfig.rows[tvimConfig.cY];
 
     switch (key) {
+    case h:
     case ARROW_LEFT:
         if (tvimConfig.cX != 0) {
             tvimConfig.cX--;
@@ -431,6 +466,7 @@ void tvim_move_cursor(int key) {
             tvimConfig.cX = tvimConfig.rows[tvimConfig.cY].len;
         }
         break;
+    case l:
     case ARROW_RIGHT:
         if (row && tvimConfig.cX < row->len) {
             tvimConfig.cX++;
@@ -441,11 +477,13 @@ void tvim_move_cursor(int key) {
             tvimConfig.cX = 0;
         }
         break;
+    case k:
     case ARROW_UP:
         if (tvimConfig.cY != 0) {
             tvimConfig.cY--;
         }
         break;
+    case j:
     case ARROW_DOWN:
         if (tvimConfig.cY < tvimConfig.nRows) {
             tvimConfig.cY++;
@@ -502,6 +540,26 @@ void tvim_draw_rows(struct abuf* ab) {
 void tvim_draw_status(struct abuf* ab) {
     ab_append(ab, "\x1b[7m", 4);
     int len = 0;
+    switch (tvimConfig.tvimMode) {
+    case (NORMAL):
+        ab_append(ab, "Normal", 6);
+        len += 6;
+        break;
+    case (VISUAL):
+        ab_append(ab, "Visual", 6);
+        len += 6;
+        break;
+    case (INSERT):
+        ab_append(ab, "Insert", 6);
+        len += 6;
+        break;
+    case (COMMAND):
+        ab_append(ab, ": ", 2);
+        len += 2;
+        break;
+    default:
+        break;
+    }
     while (len < tvimConfig.screenCols) {
         ab_append(ab, " ", 1);
         len++;
@@ -607,7 +665,6 @@ void tvim_delete_char() {
         row_delete(tvimConfig.cY);
 
         tvimConfig.cY--;
-        tvimConfig.cX = tvimConfig.rows[tvimConfig.cY].len;
         tvimConfig.unsaved += 1;
     } else {
 
@@ -689,12 +746,31 @@ void tvim_process_normal(int c) {
     case ARROW_DOWN:
     case ARROW_LEFT:
     case ARROW_RIGHT:
+    case l:
+    case k:
+    case j:
+    case h:
         tvim_move_cursor(c);
+        break;
+    case o:
+        row_insert(tvimConfig.cY + 1, "", 0);
+        tvimConfig.cY += 1;
+        tvimConfig.cX = 0;
+        tvimConfig.tvimMode = INSERT;
+        break;
+
+    case 'O':
+        row_insert(tvimConfig.cY, "", 0);
+        tvimConfig.cX = 0;
+        tvimConfig.tvimMode = INSERT;
         break;
     case DELETE_KEY:
         tvim_move_cursor(ARROW_RIGHT);
         tvim_delete_char();
         tvimConfig.tvimMode = NORMAL;
+        break;
+    case v:
+        tvimConfig.tvimMode = VISUAL;
         break;
     case i:
         tvimConfig.tvimMode = INSERT;
@@ -703,6 +779,9 @@ void tvim_process_normal(int c) {
         break;
     case CTRL_KEY('q'):
         clean_exit();
+        break;
+    case CTRL_KEY('s'):
+        file_save();
         break;
     default:
         break;
@@ -720,6 +799,9 @@ void tvim_process_visual(int c) {
     case DELETE_KEY:
         tvim_move_cursor(ARROW_RIGHT);
         tvim_delete_char();
+        tvimConfig.tvimMode = NORMAL;
+        break;
+    case ESCAPE:
         tvimConfig.tvimMode = NORMAL;
         break;
     case CTRL_KEY('q'):
@@ -741,6 +823,7 @@ void tvim_process_insert(int c) {
     case DELETE_KEY:
         tvim_move_cursor(ARROW_RIGHT);
         tvim_delete_char();
+        tvimConfig.tvimMode = NORMAL;
         break;
     case BACKSPACE:
         tvim_delete_char();
